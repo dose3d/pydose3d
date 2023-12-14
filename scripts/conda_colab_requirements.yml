@@ -1,0 +1,12 @@
+# For update already existing environment:
+# $ conda env update --file conda_colab_requirements.yml
+#
+# TO BE UPDATED !!!
+#
+channels:
+  - conda-forge
+dependencies:
+  - jupyter_client=7.0.6
+  - jupyter_server=1.23.6
+  - jupyter-server-proxy=4.0.0
+  - jupyter_http_over_ws=0.0.8
