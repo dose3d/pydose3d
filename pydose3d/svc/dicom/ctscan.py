@@ -300,6 +300,10 @@ class CtScanSvc(Svc):
 
     def import_gdml(self,frame):
         self._geom = TGeoManager.Import(frame)
+        
+    def inport_prepared_data(self, data_folder_path):
+        # TODO: In folder names -> to list/dictionary
+        # Iterare over it and... Write every slice to DICOM.
 
     def generate_dicom_ct(self, struct=False):
         if not self.__output_path:
