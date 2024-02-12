@@ -12,6 +12,7 @@ from pydicom.dataset import Dataset, FileDataset
 from pydicom.uid import ExplicitVRLittleEndian
 from ROOT import TGeoManager
 from svc._core.svc import Svc
+from data import get_example_data_file as get_data_file
 
 #G4_WAter
 #G4_Galactic
@@ -24,17 +25,19 @@ class CtScanSvc(Svc):
     def __init__(self, label="sample", value=None,log=1):
         super().__init__("CtScanSvc")
         super().set_verbose_level(log)
-        self._hounsfield_units_dictionary = {'G4_WAter': 0, 'PMMA': 123.87, 'G4_Galactic':0}
+        self._hounsfield_units_dictionary = {'G4_WATER': 0, 'PMMA': 123.87, 'RMPS470':143.0, 'Usr_G4AIR20C':-995 , 'G4_Galactic':-1000, 'Vacuum':-1000, 'RW3':245}
         self._image_type_dictionary = {'CT': '1.2.840.10008.5.1.4.1.1.2.'} # Kiedyś dodam więcej modalności
         self._geom = value
         self.label = label
         self.output_array = np.zeros((1, 1, 1))
-        self.__generate_sheet = True
-        self.__generate_dicom = True
-        self.plain_data = {'x':[],'y':[],'z':[],'D3D_ID':[]}
-        self.data_array = pd.DataFrame(self.plain_data)  
-        self.series = self.__start_Dicom_series()
-        self.instance_UID = self.series.SOPInstanceUID
+        self.__generate_sheet = False
+        self.__generate_struct = False
+        self.__generate_CT = True
+        self.plain_data = np.zeros(shape = (70*70*70, 3, )) 
+        df1 = pd.DataFrame(self.plain_data,columns=['x','y','z']) 
+        temp = {'D3D_ID':[]}
+        df2 = pd.DataFrame(temp,dtype=object) 
+        self.data_array = df1.join(df2)
         self.__x_min = 0
         self.__x_max = 0
         self.__y_min = 0
@@ -48,7 +51,8 @@ class CtScanSvc(Svc):
         self.__step_y = 0
         self.__step_z = 0
         self.__borders_have_been_defined = False
-        self.__voxels_have_been_defined = False
+        self.__voxels_size_have_been_defined = False
+        self.__std_x_y_z = [70,70,70]
 
         # RT-Struct dev notes:
         # dcm_ct.StudyInstanceUID         #Study Unical Id
@@ -77,45 +81,50 @@ class CtScanSvc(Svc):
             pass
         return cls.__output_path
 
-    @classmethod
-    def define_borfer_size(self,xmin,xmax,ymin,ymax,zmin,zmax):
-        self.__border_setter(xmin,xmax,ymin,ymax,zmin,zmax)
+
+
+    def define_border_size(self, xmin, xmax, ymin, ymax, zmin, zmax):
+        self.__border_setter(x_min = xmin, x_max= xmax, y_min=ymin, y_max= ymax, z_min= zmin, z_max= zmax)
         return True
 
-    def define_voxel_properties():
-        return True
+    def define_voxel_size(self, x_step, ystep, zstep):
+        self.__voxel_setter(x_step, ystep, zstep)
 
 
 # ------------------------------- Priv Class Methods ----------------------------
 
-    def __border_setter(self, xmin, xmax, ymin, ymax, zmin, zmax):
-        self.__x_min = xmin
-        self.__y_min = ymin
-        self.__z_min = zmin
-        self.__x_max = xmax
-        self.__y_max = ymaxdefine_borfer_size
-        self.__z_max = zmax
-        if self.__voxels_have_been_defined == True:
+    def __border_setter(self, x_min, x_max, y_min, y_max, z_min, z_max):
+        self.__x_min = x_min
+        self.__y_min = y_min
+        self.__z_min = z_min
+        self.__x_max = x_max
+        self.__y_max = y_max
+        self.__z_max = z_max
+        if self.__voxels_size_have_been_defined == True:
             len_x = self.__x_max - self.__x_min
             len_y = self.__y_max - self.__y_min
             len_z = self.__z_max - self.__z_min
-            x_tweaker = (self.__pixel_in_x - (len_x % self.__pixel_in_x))/2
-            y_tweaker = (self.__pixel_in_y - (len_y % self.__pixel_in_y))/2
-            z_tweaker = (self.__pixel_in_z - (len_z % self.__pixel_in_z))/2
+            x_tweaker = (self.__pixel_size_in_x - (len_x % self.__pixel_size_in_x))/2
+            y_tweaker = (self.__pixel_size_in_y - (len_y % self.__pixel_size_in_y))/2
+            z_tweaker = (self.__pixel_size_in_z - (len_z % self.__pixel_size_in_z))/2
             self.__x_max = self.__x_max + x_tweaker
             self.__y_max = self.__y_max + y_tweaker
             self.__z_max = self.__z_max + z_tweaker
             self.__x_min = self.__x_min - x_tweaker
             self.__y_min = self.__z_min - y_tweaker
             self.__z_min = self.__z_min - z_tweaker
+            self.__pixel_count_in_x = int((self.__x_max - self.__x_min)/self.__pixel_size_in_x)
+            self.__pixel_count_in_y = int((self.__y_max - self.__y_min)/self.__pixel_size_in_y)
+            self.__pixel_count_in_z = int((self.__z_max - self.__z_min)/self.__pixel_size_in_z)
+
         self.__borders_have_been_defined = True
 
 
 
     def __voxel_setter(self,xslice,yslice,zslice):
-        self.__pixel_in_x = xslice
-        self.__pixel_in_y = yslice
-        self.__pixel_in_z = zslice
+        self.__pixel_size_in_x = xslice
+        self.__pixel_size_in_y = yslice
+        self.__pixel_size_in_z = zslice
 
         if self.__borders_have_been_defined == True:
             len_x = self.__x_max - self.__x_min
@@ -130,7 +139,13 @@ class CtScanSvc(Svc):
             self.__x_min = self.__x_min - x_tweaker
             self.__y_min = self.__z_min - y_tweaker
             self.__z_min = self.__z_min - z_tweaker
-        self.__voxels_have_been_defined = True
+            self.__pixel_count_in_x = int((self.__x_max - self.__x_min)/self.__pixel_size_in_x)
+            self.__pixel_count_in_y = int((self.__y_max - self.__y_min)/self.__pixel_size_in_y)
+            self.__pixel_count_in_z = int((self.__z_max - self.__z_min)/self.__pixel_size_in_z)
+        self.__voxels_size_have_been_defined = True
+
+
+
 
     def __gdml_scaner(self,x,y,z):
         self._geom.SetCurrentPoint(x,y,z)
@@ -143,99 +158,120 @@ class CtScanSvc(Svc):
 
 
     def __start_Dicom_series(self):
-        meta = pydicom.Dataset()
-        ds = Dataset()
-        meta.MediaStorageSOPClassUID = pydicom._storage_sopclass_uids.CTImageStorage
-        meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
-        meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
-        ds.SeriesInstanceUID = pydicom.uid.generate_uid(prefix="1.2.840.10008.5.1.4.1.1.2.")
-        ds.StudyInstanceUID = pydicom.uid.generate_uid(prefix="1.2.840.10008.5.1.4.1.1.2.")
-        ds.file_meta = meta
-        ds.SOPInstanceUID = meta.MediaStorageSOPInstanceUID
-        ds.SOPClassUID = pydicom._storage_sopclass_uids.CTImageStorage
-        ds.FrameOfReferenceUID = pydicom.uid.generate_uid(prefix="1.2.840.10008.5.1.4.1.1.2.")
-        ds.StudyID = r"1"
-        return ds
-
-    def __write_Dicom_ct_slice(self, image2d, sliceNumber):
-        image2d = image2d.astype(np.uint16)
-
-        ds = self.series
-        ds.is_little_endian = True
-        ds.is_implicit_VR = False
-        ds.ContentDate = str(datetime.date.today()).replace('-','')
-        ds.ContentTime = str(time.time())
-
-
-        ds.SOPInstanceUID = self.instance_UID+".64156"+f"{sliceNumber*12}"
-        ds.file_meta.MediaStorageSOPInstanceUID = self.instance_UID+".64156"+f"{sliceNumber*12}"
-        ds.PatientName = "Test^Firstname"
-        ds.PatientID = "123456"
-        ds.Modality = "CT"
+        name = get_data_file("template/CT.dcm")
+        ds = pydicom.dcmread(name)
+        
+        # --------------- overwrite metadata ----------------
+        ds.file_meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.1.")
+        ds.file_meta.ImplementationClassUID = "1.2.826.0.1.3680043.8.498.1"
+        ds.file_meta.ImplementationVersionName = "pydicom 2.2.2"
+        ds.file_meta.SourceApplicationEntityTitle = "Dose-3D"
+        
+        # -------------- overwrite flesh ------------------
+        ds.SOPClassUID = ds.file_meta.MediaStorageSOPClassUID
+        ds.SOPInstanceUID = ds.file_meta.MediaStorageSOPInstanceUID
+        ds.StudyTime = "123030"
+        ds.SeriesTime = "123100"
+        ds.StudyDate = datetime.datetime.now().strftime('%Y%m%d')
+        ds.SeriesDate = datetime.datetime.now().strftime('%Y%m%d')
+        ds.ContentDate = datetime.datetime.now().strftime('%Y%m%d')
         ds.Manufacturer = "Dose3D"
-        ds.InstitutionName = "AGH"
-
-
-        ds.BitsStored = 16
-        ds.BitsAllocated = 16
-        ds.SamplesPerPixel = 1
-        ds.HighBit = 15
-        ds.ImagesInAcquisition = "1"
-        ds.Rows = image2d.shape[0]
-        ds.Columns = image2d.shape[1]
-        ds.SeriesNumber = 1
-        ds.InstanceNumber = sliceNumber
-        ds.ImagePositionPatient = f"{-225+self.__z_min*0.88}\{-225+self.__y_min*0.88}\{sliceNumber*1.22}"
+        ds.InstitutionName = "AGH WFiIS"
+        ds.InstitutionAddress = "Kraków"
+        ds.SeriesDescription = "Test slice of CT"
+        ds.ManufacturerModelName = "DICOMaker v. alpha 0.09"
+        ds.PatientName = self.label
+        ds.PatientID = "0123456789"
+        ds.SoftwareVersions = "DICOMaker alpha v0.09"
+        ds.DistanceSourceToDetector = "1000"
+        ds.DistanceSourceToPatient = "500"
+        # ds.TableHeight = "To remove"
+        # ds.RotationDirection = "To remove"
+        # ds.ExposureTime = "0"
+        # ds.XRayTubeCurrent = "0"
+        # ds.Exposure = "0"
+        # ds.FilterType = "0"
+        # ds.GeneratorPower = "0"
+        ds.StudyInstanceUID = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.1.")
+        ds.SeriesInstanceUID  = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.1.")
+        ds.StudyID = "1"
+        ds.SeriesNumber = "1"
+        ds.FrameOfReferenceUID = "1.2.840.10008.15.1.1"
+        ds.PositionReferenceIndicator = "XY"
         ds.ImageOrientationPatient = r"1\0\0\0\1\0"
-        ds.ImageType = r"ORIGINAL\PRIMARY\AXIAL"
-        ds.SliceThickness = r"1.14" # TOFO: uzależnić od ustawionego pixel spacingu
-        ds.KVP = r"120.0"
-        ds.DataCollectionDiameter = r"500.0" # TOFO: uzależnić od ustawionego wymiaru
-        ds.ReconstructionDiameter = r"500.0" # TOFO: uzależnić od ustawionego wymiaru
-        ds.DistanceSourceToDetector = r"1000.0"
-        ds.DistanceSourceToDetector = r"550.0"
-        ds.TableHeight = r"0.0"
-        ds.FocalSpots = r"0.1"
-        ds.PatientPosition = r"HFS"
-        ds.RescaleIntercept = "0"
-        ds.RescaleSlope = "1"
-        ds.RescaleType = r"HU"
-        ds.PixelSpacing = r"0.946\0.946" # TOFO: uzależnić od ustawionego pixel spacingu
-        ds.PhotometricInterpretation = "MONOCHROME2"
+        
         ds.PixelRepresentation = 1
-        ds.WindowCenter = r"120.0"
+        ds.WindowCenter = r"125.0"
         ds.WindowWidth = r"600.0"
         ds.RescaleIntercept = r"0.0"
-        ds.RescaleSlope = r"1"
-        ds.SeriesNumber = 1
-        ds.AcquisitionNumber = 1
+        return ds
+    
+    
+    
+    def __write_Dicom_ct_slice(self, image2d, sliceNumber):
+        image2d = image2d.astype(np.uint16)
+        ds = self.series
+        ds.file_meta.MediaStorageSOPInstanceUID = self.instance_UID+".64156"+f"{sliceNumber*12}"
+        ds.SOPInstanceUID = self.instance_UID+".64156"+f"{sliceNumber*12}"
+        ds.Rows = image2d.shape[0]
+        ds.Columns = image2d.shape[1]
 
-        pydicom.dataset.validate_file_meta(ds.file_meta, enforce_standard=True)
-
-        print("Setting pixel data...")
+        if self.__voxels_size_have_been_defined:
+            ds.SliceThickness = f"{self.__pixel_size_in_x*10}" # TOFO: uzależnić od ustawionego pixel spacingu
+        else:
+            ds.SliceThickness = f"0.85"
+        
+        if self.__voxels_size_have_been_defined:
+            ds.PixelSpacing = f"{self.__pixel_size_in_y*10}\{self.__pixel_size_in_z*10}" # TOFO: uzależnić od ustawionego pixel spacingu
+        else:
+            ds.PixelSpacing = r"0.85\0.85"
+            
+        if self.__voxels_size_have_been_defined:
+            ds.ImagePositionPatient = f"{self.__y_min*self.__pixel_size_in_y*10}\{self.__z_min*self.__pixel_size_in_z*10}\{sliceNumber*self.__pixel_size_in_x*10}"
+        else:
+            ds.ImagePositionPatient = f"{-60+self.__z_min*0.85}\{-60+self.__y_min*0.85}\{-10+sliceNumber*0.85}"
+        
+        if self.__voxels_size_have_been_defined:
+            ds.SliceLocation =f"{sliceNumber*self.__pixel_size_in_x*10}"
+        else:
+            ds.SliceLocation = f"{sliceNumber*0.85}"
+        
+        ds.InstanceCreationTime = datetime.datetime.now().strftime("%H%M%S.%f")[:-3]
+        ds.ContentTime = datetime.datetime.now().strftime("%H%M%S")
+        ds.InstanceNumber = sliceNumber
         ds.PixelData = image2d.tobytes()
-        print("Tobytes done.")
+        pydicom.dataset.validate_file_meta(ds.file_meta, enforce_standard=True)
         ds.save_as(self.__output_path+self.label+f"{sliceNumber}"+r".dcm")
-        print("One saved")
 
     def __write_whole_Dicom_ct(self):
         self.log().debug("Writing the whole DICOM CT")
         iter=0
-        print(f"xxx {self.__x_max-self.__x_min}")
-        for i in range(self.__x_max-self.__x_min):
-            print("Slice nr", iter+1)
+        if self.__borders_have_been_defined == True:
+            x = self.__pixel_count_in_x
+        else:
+            x = self.__std_x_y_z[0]
+        for i in range(x):
+            print(f"Writing slice {iter+1}")
             self.__write_Dicom_ct_slice(self.output_array[iter,:,:], iter+1)
             iter=iter+1
         return True
 
 
-    def __gdml_iter(self, std_x=70, std_y=70, std_z=70,gen_csv=False):
+    def __gdml_iter(self, std_x=70, std_y=70, std_z=70, d3d_indexing_csv=False):
+        
+        iter = 0
+
+        voxel_size = [0.85,0.85,0.85]
+        if self.__voxels_size_have_been_defined == True:
+            voxel_size = [self.__pixel_size_in_x, self.__pixel_size_in_y, self.__pixel_size_in_z]
+
         if self.__borders_have_been_defined == True:
-            hounsfield_3d_array = np.zeros((self.__z_max- self.__z_min,  self.__x_max- self.__x_min,  self.__y_max- self.__y_min))
-            for x in range( self.__x_min, self.__x_max):
-                for y in range( self.__y_min, self.__y_max):
-                    for z in range( self.__z_min, self.__z_max,1):
-                        material, d3d_id = self.__gdml_scaner((-124.785 + (1.22*x)), (-125.0 + (0.879*y)), (-20 + (0.879*z)))
+            hounsfield_3d_array = np.zeros((self.__pixel_count_in_x,  self.__pixel_count_in_y,  self.__pixel_count_in_z))
+            for x in range(self.__pixel_count_in_x):
+                print(f"Slice {x}")
+                for y in range(self.__pixel_count_in_y):
+                    for z in range(self.__pixel_count_in_z):
+                        material, d3d_id = self.__gdml_scaner((self.__x_min + (voxel_size[0]*x)), (self.__y_min + (voxel_size[1]*y)), (self.__z_min + (voxel_size[2]*z)))
                         hounsfield_3d_array[x, y, z] = self._hounsfield_units_dictionary[material]
             self.output_array = hounsfield_3d_array
             return self.output_array
@@ -243,20 +279,20 @@ class CtScanSvc(Svc):
         else:
             hounsfield_3d_array = np.zeros((std_x, std_y, std_z))
             for x in range(std_x):
+                print(f"Processing slice {x}")
                 for y in range(std_y):
                     for z in range(std_z):
-                        material, d3d_id = self.__gdml_scaner((-3.8 + (0.114*x)), (-3.1 + (0.0946*y)), (-6.4 + (0.0946*z)))
+                        material, d3d_id = self.__gdml_scaner((-5 + (voxel_size[0]*x)), (-5 + (voxel_size[1]*y)), (-5 + (voxel_size[2]*z)))
                         hounsfield_3d_array[x, y, z] = self._hounsfield_units_dictionary[material]
-                        if gen_csv:
+                        if d3d_indexing_csv:
                             if len(d3d_id) == 3:
-                                self.data_array.loc[len(self.data_array.index)] = [x,y,z,d3d_id]
+                                self.data_array.loc[iter] = [x,y,z,d3d_id]
                             else:
-                                self.data_array.loc[len(self.data_array.index)] = [x,y,z,[-1,-1,-1]]
-                if gen_csv:
-                    self.data_array.to_csv(self.__output_path+'slice'+f'{x+1}'+'.csv',index=False)
-                    self.data_array = pd.DataFrame(self.plain_data)  
+                                self.data_array.loc[iter] = [x,y,z,[-1,-1,-1]]
+                            iter = iter + 1
 
-
+            if d3d_indexing_csv:
+                self.data_array.to_csv(self.__output_path+'dose3d_module_indexing.csv',index=False)
             self.output_array = hounsfield_3d_array
             return self.output_array
 
@@ -265,10 +301,20 @@ class CtScanSvc(Svc):
     def import_gdml(self,frame):
         self._geom = TGeoManager.Import(frame)
 
-    def generate_dicom_ct(self,csv=False, struct=False):
+    def generate_dicom_ct(self, struct=False):
         if not self.__output_path:
             self.log().error("The output path is not defined. Use method: Reader::set_output_path(\"path_to_out_dir\")")
             return None
-        self.__gdml_iter(gen_csv=csv)
-        print("test")
+        self.series = self.__start_Dicom_series()
+        self.instance_UID = self.series.SOPInstanceUID
+        self.__gdml_iter()
+        self.__write_whole_Dicom_ct()
+    
+    def write_dose3d_dicom_ct(self, d3d_indexing=False, rt_struct=False):
+        if not self.__output_path:
+            self.log().error("The output path is not defined. Use method: Reader::set_output_path(\"path_to_out_dir\")")
+            return None
+        self.series = self.__start_Dicom_series()
+        self.instance_UID = self.series.SOPInstanceUID
+        self.__gdml_iter(d3d_indexing_csv=d3d_indexing)
         self.__write_whole_Dicom_ct()
