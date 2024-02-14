@@ -1,5 +1,5 @@
 import datetime
-import logging
+from loguru import logger
 import os
 import time
 from sys import prefix
@@ -11,31 +11,25 @@ import pydicom._storage_sopclass_uids
 from pydicom.dataset import Dataset, FileDataset
 from pydicom.uid import ExplicitVRLittleEndian
 from ROOT import TGeoManager
-from data import get_example_data_file as get_data_file
+from pydose3d.data import get_example_data as get_data_file
+import json
 
-#G4_WAter
-#G4_Galactic
-#self._hounsfield_units_dictionary = {'Vacuum': 0, 'PMMA': 123.87,'Lung':-1000}
 
-class CtScanSvc(Svc):
+
+class CtScanSvc():
     __output_path = None
-
+    
 # -------------------------------- Init -----------------------------------------
-    def __init__(self, label="sample", value=None,log=1):
-        super().set_verbose_level(log)
-        self._hounsfield_units_dictionary = {'G4_WATER': 0, 'PMMA': 123.87, 'RMPS470':143.0, 'Usr_G4AIR20C':-995 , 'G4_Galactic':-1000, 'Vacuum':-1000, 'RW3':245}
-        self._image_type_dictionary = {'CT': '1.2.840.10008.5.1.4.1.1.2.'} # Kiedyś dodam więcej modalności
-        self._geom = value
-        self.label = label
-        self.output_array = np.zeros((1, 1, 1))
-        self.__generate_sheet = False
-        self.__generate_struct = False
+    def __init__(self, label="img", data_path=None):
+        dictionary = get_data_file("/d3d/settings/hounsfield_scale.json")
+        with open(dictionary) as jsn_file:
+            self.__hounsfield_units_dictionary, self.__image_type_dictionary = json.load(jsn_file)
+        self.__label = label
         self.__generate_CT = True
-        self.plain_data = np.zeros(shape = (70*70*70, 3, )) 
-        df1 = pd.DataFrame(self.plain_data,columns=['x','y','z']) 
-        temp = {'D3D_ID':[]}
-        df2 = pd.DataFrame(temp,dtype=object) 
-        self.data_array = df1.join(df2)
+        self.__output_array = np.zeros((1, 1, 1))
+        self.__data_path = data_path
+        self.__plain_data = np.zeros(shape = (1*1*1, 3, )) 
+        self.__data_array  = pd.DataFrame(self.plain_data,columns=['x','y','z']) 
         self.__x_min = 0
         self.__x_max = 0
         self.__y_min = 0
@@ -50,19 +44,7 @@ class CtScanSvc(Svc):
         self.__step_z = 0
         self.__borders_have_been_defined = False
         self.__voxels_size_have_been_defined = False
-        self.__std_x_y_z = [70,70,70]
-
-        # RT-Struct dev notes:
-        # dcm_ct.StudyInstanceUID         #Study Unical Id
-        # dcm_ct.SeriesInstanceUID        #Series Unical ID
-        # dcm_ct.FrameOfReferenceUID      #Frame of Reference UID
-        # dcm_ct.ImagePositionPatient     #Position
-        # dcm_ct.ImageOrientationPatient  #Matrix ortogonisation for X and Y versor
-        # dcm_ct.SliceThickness           #Slice thickness
-        # dcm_ct.PixelSpacing             #Pixel Spacing
-        # dcm_ct.PixelData                #Pixell Hounsfield array
-        # dcm_ct.Rows                     #Num of rows
-        # dcm_ct.Columns                  #Num of Columns
+        self.__std_x_y_z = [self.__pixel_in_x,self.__pixel_in_y,self.__pixel_in_z]
 
 # -------------------------------- User Interface Methods -----------------------
 
@@ -91,68 +73,13 @@ class CtScanSvc(Svc):
 
 # ------------------------------- Priv Class Methods ----------------------------
 
-    def __border_setter(self, x_min, x_max, y_min, y_max, z_min, z_max):
-        self.__x_min = x_min
-        self.__y_min = y_min
-        self.__z_min = z_min
-        self.__x_max = x_max
-        self.__y_max = y_max
-        self.__z_max = z_max
-        if self.__voxels_size_have_been_defined == True:
-            len_x = self.__x_max - self.__x_min
-            len_y = self.__y_max - self.__y_min
-            len_z = self.__z_max - self.__z_min
-            x_tweaker = (self.__pixel_size_in_x - (len_x % self.__pixel_size_in_x))/2
-            y_tweaker = (self.__pixel_size_in_y - (len_y % self.__pixel_size_in_y))/2
-            z_tweaker = (self.__pixel_size_in_z - (len_z % self.__pixel_size_in_z))/2
-            self.__x_max = self.__x_max + x_tweaker
-            self.__y_max = self.__y_max + y_tweaker
-            self.__z_max = self.__z_max + z_tweaker
-            self.__x_min = self.__x_min - x_tweaker
-            self.__y_min = self.__z_min - y_tweaker
-            self.__z_min = self.__z_min - z_tweaker
-            self.__pixel_count_in_x = int((self.__x_max - self.__x_min)/self.__pixel_size_in_x)
-            self.__pixel_count_in_y = int((self.__y_max - self.__y_min)/self.__pixel_size_in_y)
-            self.__pixel_count_in_z = int((self.__z_max - self.__z_min)/self.__pixel_size_in_z)
+    
+    def __get_metadata_from_file(self):
+        pass
 
-        self.__borders_have_been_defined = True
+    def __set_image_properties(self):
+        pass
 
-
-
-    def __voxel_setter(self,xslice,yslice,zslice):
-        self.__pixel_size_in_x = xslice
-        self.__pixel_size_in_y = yslice
-        self.__pixel_size_in_z = zslice
-
-        if self.__borders_have_been_defined == True:
-            len_x = self.__x_max - self.__x_min
-            len_y = self.__y_max - self.__y_min
-            len_z = self.__z_max - self.__z_min
-            x_tweaker = (xslice - (len_x % xslice))/2
-            y_tweaker = (yslice - (len_y % yslice))/2
-            z_tweaker = (zslice - (len_z % zslice))/2
-            self.__x_max = self.__x_max + x_tweaker
-            self.__y_max = self.__y_max + y_tweaker
-            self.__z_max = self.__z_max + z_tweaker
-            self.__x_min = self.__x_min - x_tweaker
-            self.__y_min = self.__z_min - y_tweaker
-            self.__z_min = self.__z_min - z_tweaker
-            self.__pixel_count_in_x = int((self.__x_max - self.__x_min)/self.__pixel_size_in_x)
-            self.__pixel_count_in_y = int((self.__y_max - self.__y_min)/self.__pixel_size_in_y)
-            self.__pixel_count_in_z = int((self.__z_max - self.__z_min)/self.__pixel_size_in_z)
-        self.__voxels_size_have_been_defined = True
-
-
-
-
-    def __gdml_scaner(self,x,y,z):
-        self._geom.SetCurrentPoint(x,y,z)
-        node = self._geom.FindNode()
-        dose3d_cell_id = node.GetVolume().GetName()
-        meterial = node.GetVolume().GetMaterial().GetName()
-
-        dose3d_cell_id = dose3d_cell_id.removeprefix('D3D_').removesuffix('LV').replace('_', ' ').split()
-        return meterial, dose3d_cell_id
 
 
     def __start_Dicom_series(self):
@@ -298,6 +225,13 @@ class CtScanSvc(Svc):
 
     def import_gdml(self,frame):
         self._geom = TGeoManager.Import(frame)
+        
+    def convert_to_dicom_ct(self, data_folder_path):
+        # TODO: In folder names -> to list/dictionary
+        # In folder serch for metadata.
+        # Iterare over it and... Write every slice to DICOM.
+        self.series = self.__start_Dicom_series()
+        self.instance_UID = self.series.SOPInstanceUID
         
 
     def generate_dicom_ct(self, struct=False):

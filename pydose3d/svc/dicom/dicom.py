@@ -4,7 +4,7 @@ import os
 import cv2
 import nibabel as nib
 from svc.utils import timer_func
-from svc._core.svc import Svc
+from svc.dicom.__core.svc import Svc
 from svc.exceptions import WrongDicomFormatException, NotADicomFileException
 from svc.exceptions import NotEqualMasksSizes, RequestedSlicesIndexOutofRange, IndexesHaveNotCorrectType
 import logging
@@ -20,6 +20,10 @@ from data import get_example_data_dir as get_data_dir
 # merge to 1
 # refactor create_roi_mask3d to make it prettier
 
+
+# New 
+# TODO!!! 
+# From logging to loguru 
 
 
 class DicomSvc(Svc):
