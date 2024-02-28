@@ -11,39 +11,42 @@ def list_data(the_path):
     paths = dp.make_tree(Path(the_path))
     for path in paths:
         print(path.displayable())
-
-
-
-data = pd.read_csv('pydose3d/svc/dicom/series_metadata.csv',header=None,index_col=0)
-data_dict = data.to_dict(orient='dict')[1]
-print(data_dict)
-print(data_dict["x_resolution"])
-
+        # pass
 
 dictionary = "/home/g4rt/instalki/pydose3d/pydose3d/data/d3d/settings/hounsfield_scale.json"
-
 with open(dictionary) as jsn_file:
-    multi_dictionary = json.load(jsn_file)
+    hounsfield_units_dictionary, image_type_dictionary = json.load(jsn_file)
 
 
 # ser = pd.Series(np.zeros(data_dict["x_resolution"]))
-ser = pd.Series(np.zeros(26))
-hounsfield_units_dictionary, image_type_dictionary = multi_dictionary
+ser = pd.Series(np.zeros(128))
+ser2 = pd.Series(np.zeros(128))
 
-print(hounsfield_units_dictionary)
-print(hounsfield_units_dictionary["PMMA"])
-
-
-print(image_type_dictionary)
-print(image_type_dictionary["CT"])
-
-
-paths = (Path("/home/g4rt/workDir/develop/g4rt/output/new_phsp_test_4/geo/DikomlikeData"))
+paths = (Path("/home/g4rt/workDir/develop/g4rt/output/ct_test_13/geo/DikomlikeData/Images"))
 iterator = 0
 for path in paths.iterdir():
-    ser.iat[iterator] = (path.name)
+    print(path)
+    if(iterator%4 == 0):
+        ser.iat[iterator] = "Usr_G4AIR20C"
+    if(iterator%4 == 1):
+        ser.iat[iterator] = "Vacuum"
+    if(iterator%4 == 2):
+        ser.iat[iterator] = "PMMA"
+    if(iterator%4 == 3):
+        ser.iat[iterator] = "RMPS470"
+    
     iterator +=1
 
+df = pd.DataFrame()
+df["Names"] = ser
+df["HU"] = df["Names"].map(hounsfield_units_dictionary)
+
+for path in paths.iterdir():
+    ser2.iat[iterator] = (path.name)
+    iterator +=1
 print(ser.sort_values(ignore_index=True))
 
-# list_data("/home/g4rt/workDir/develop/g4rt/output/new_phsp_test_4/geo/DikomlikeData")
+
+
+print(df)
+# list_data("/home/g4rt/workDir/develop/g4rt/output/ct_test_13/geo/DikomlikeData")

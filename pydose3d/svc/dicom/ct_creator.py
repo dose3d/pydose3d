@@ -24,12 +24,12 @@ class CtScanSvc():
         dictionary = get_data_file("/d3d/settings/hounsfield_scale.json")
         with open(dictionary) as jsn_file:
             self.__hounsfield_units_dictionary, self.__image_type_dictionary = json.load(jsn_file)
-        self.__label = label
-        self.__generate_CT = True
+        self.__label = label # Did I Need that?
+        self.__generate_CT = True # Did I Need that?
         self.__output_array = np.zeros((1, 1, 1))
         self.__data_path = data_path
         self.__plain_data = np.zeros(shape = (1*1*1, 3, )) 
-        self.__data_array  = pd.DataFrame(self.plain_data,columns=['x','y','z']) 
+        self.__data_array  = pd.DataFrame(self.__plain_data,columns=['x','y','z']) 
         self.__x_min = 0
         self.__x_max = 0
         self.__y_min = 0
@@ -42,6 +42,7 @@ class CtScanSvc():
         self.__step_x = 0
         self.__step_y = 0
         self.__step_z = 0
+        self.__SSD = 0
         self.__borders_have_been_defined = False
         self.__voxels_size_have_been_defined = False
         self.__std_x_y_z = [self.__pixel_in_x,self.__pixel_in_y,self.__pixel_in_z]
@@ -62,24 +63,44 @@ class CtScanSvc():
         return cls.__output_path
 
 
-
-    def define_border_size(self, xmin, xmax, ymin, ymax, zmin, zmax):
-        self.__border_setter(x_min = xmin, x_max= xmax, y_min=ymin, y_max= ymax, z_min= zmin, z_max= zmax)
-        return True
-
-    def define_voxel_size(self, x_step, ystep, zstep):
-        self.__voxel_setter(x_step, ystep, zstep)
-
-
 # ------------------------------- Priv Class Methods ----------------------------
 
     
     def __get_metadata_from_file(self):
-        pass
+        data = pd.read_csv(f'{self.__data_path}/series_metadata.csv',header=None,index_col=0)
+        data_dict = data.to_dict(orient='dict')[1]
+        self.__x_min = data_dict["x_min"]
+        self.__x_max = data_dict["x_max"]
+        self.__y_min = data_dict["y_min"]
+        self.__y_max = data_dict["y_max"]
+        self.__z_min = data_dict["z_min"]
+        self.__z_max = data_dict["z_max"]
+        self.__pixel_in_x = data_dict["x_resolution"]
+        self.__pixel_in_y = data_dict["y_resolution"]
+        self.__pixel_in_z = data_dict["z_resolution"]
+        self.__step_x = data_dict["x_step"]
+        self.__step_y = data_dict["y_step"]
+        self.__step_z = data_dict["z_step"]
+        self.__SSD = data_dict["SSD"]
 
-    def __set_image_properties(self):
-        pass
+    def __set_image_properties(self, data_path):
+        self.__data_path = data_path
+        self.__get_metadata_from_file()
+        
+        self.__std_x_y_z = [self.__pixel_in_x,self.__pixel_in_y,self.__pixel_in_z]
+        
+        # TODO: Output per slice - not all in one go... 
+        self.__output_array =  np.zeros((   1,  
+                                            self.__pixel_in_y,  
+                                            self.__pixel_in_z))
+        self.__plain_data = np.zeros(shape = (  1,  
+                                                self.__pixel_in_y,  
+                                                self.__pixel_in_z, 3, )) 
+        self.__data_array  = pd.DataFrame(self.__plain_data,columns=['x','y','z']) 
+        self.__start_Dicom_series()
 
+    def __readout_image_array_from_file(self):
+        pass 
 
 
     def __start_Dicom_series(self):
@@ -105,11 +126,12 @@ class CtScanSvc():
         ds.InstitutionAddress = "Kraków"
         ds.SeriesDescription = "Test slice of CT"
         ds.ManufacturerModelName = "DICOMaker v. alpha 0.09"
-        ds.PatientName = self.label
+        ds.PatientName = self.__label
         ds.PatientID = "0123456789"
         ds.SoftwareVersions = "DICOMaker alpha v0.09"
-        ds.DistanceSourceToDetector = "1000"
-        ds.DistanceSourceToPatient = "500"
+        # Should it be set at same distance?
+        ds.DistanceSourceToDetector = self.__SSD
+        ds.DistanceSourceToPatient = self.__SSD
         # ds.TableHeight = "To remove"
         # ds.RotationDirection = "To remove"
         # ds.ExposureTime = "0"
@@ -172,7 +194,7 @@ class CtScanSvc():
         self.log().debug("Writing the whole DICOM CT")
         iter=0
         if self.__borders_have_been_defined == True:
-            x = self.__pixel_count_in_x
+            x = self.__pixel_in_x
         else:
             x = self.__std_x_y_z[0]
         for i in range(x):
@@ -180,6 +202,18 @@ class CtScanSvc():
             self.__write_Dicom_ct_slice(self.output_array[iter,:,:], iter+1)
             iter=iter+1
         return True
+
+
+    def __ct_iterator(self):
+        hounsfield_3d_array = np.zeros((self.__pixel_in_x,  self.__pixel_in_y,  self.__pixel_in_z))
+        for x in range(self.__pixel_in_x):
+            print(f"Slice {x}")
+            for y in range(self.__pixel_in_y):
+                for z in range(self.__pixel_in_z):
+                    material, d3d_id = self.__gdml_scaner((self.__x_min + (self.__step_x*x)), (self.__y_min + (self.__step_y*y)), (self.__z_min + (self.__step_z*z)))
+                    hounsfield_3d_array[x, y, z] = self._hounsfield_units_dictionary[material]
+        self.output_array = hounsfield_3d_array
+        return self.output_array
 
 
     def __gdml_iter(self, std_x=70, std_y=70, std_z=70, d3d_indexing_csv=False):
@@ -191,11 +225,11 @@ class CtScanSvc():
             voxel_size = [self.__pixel_size_in_x, self.__pixel_size_in_y, self.__pixel_size_in_z]
 
         if self.__borders_have_been_defined == True:
-            hounsfield_3d_array = np.zeros((self.__pixel_count_in_x,  self.__pixel_count_in_y,  self.__pixel_count_in_z))
-            for x in range(self.__pixel_count_in_x):
+            hounsfield_3d_array = np.zeros((self.__pixel_in_x,  self.__pixel_in_y,  self.__pixel_in_z))
+            for x in range(self.__pixel_in_x):
                 print(f"Slice {x}")
-                for y in range(self.__pixel_count_in_y):
-                    for z in range(self.__pixel_count_in_z):
+                for y in range(self.__pixel_in_y):
+                    for z in range(self.__pixel_in_z):
                         material, d3d_id = self.__gdml_scaner((self.__x_min + (voxel_size[0]*x)), (self.__y_min + (voxel_size[1]*y)), (self.__z_min + (voxel_size[2]*z)))
                         hounsfield_3d_array[x, y, z] = self._hounsfield_units_dictionary[material]
             self.output_array = hounsfield_3d_array
