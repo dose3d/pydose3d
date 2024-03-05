@@ -131,9 +131,10 @@ class CtScanSvc():
         ds.StudyID = "1"
         ds.SeriesNumber = "1"
         ds.FrameOfReferenceUID = "1.2.840.10008.15.1.1"
-        ds.PositionReferenceIndicator = "XY"
+        ds.PositionReferenceIndicator = ""
+        ds.PositionReferenceIndicator = ""
         ds.ImageOrientationPatient = r"1\0\0\0\1\0"
-        
+        ds.PatientPosition = "HFS"
         ds.PixelRepresentation = 1
         ds.WindowCenter = r"125.0"
         ds.WindowWidth = r"600.0"
@@ -175,7 +176,7 @@ class CtScanSvc():
         images_path_string = self.__data_path + "/Images"
         images_paths = Path(images_path_string)
         # 128 should be taken from metadata... 
-        ser = pd.Series(np.zeros(256))
+        ser = pd.Series(np.zeros(512))
         iterator = 0
         logger.info(f"Start iteration over images")
         for path in images_paths.iterdir():
@@ -190,7 +191,7 @@ class CtScanSvc():
             iterator +=1
             self.__write_Dicom_ct_slice((pd.read_csv(f"{images_path_string}/{element}")
                                         ["Material"]).map(self.__hounsfield_units_dictionary)
-                                        .values.reshape(256,256), iterator)
+                                        .values.reshape(512,512, order="F"), iterator)
             
         return True
 
@@ -210,7 +211,7 @@ if __name__=="__main__":
     scannerCT = CtScanSvc()
     
 
-    scannerCT.set_output_path("/mnt/c/Users/Jakub/Desktop/CT_Base/1000101010")
+    scannerCT.set_output_path("/mnt/c/Users/Jakub/Desktop/CT_Base/FinalIHope")
     start_time = time.time()
-    scannerCT.create_ct_series("/home/g4rt/workDir/develop/g4rt/output/ct_test/geo/DikomlikeData")
+    scannerCT.create_ct_series("/home/g4rt/workDir/develop/g4rt/output/ct_creator/geo/DikomlikeData")
     print("--- %s seconds ---" % (time.time() - start_time))
