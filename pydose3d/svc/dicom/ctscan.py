@@ -160,8 +160,8 @@ class CtScanSvc(Svc):
         ds = pydicom.dcmread(name)
         
         # --------------- overwrite metadata ----------------
-        ds.file_meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.1.")
-        ds.file_meta.ImplementationClassUID = "1.2.826.0.1.3680043.8.498.1"
+        ds.file_meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.997.")
+        ds.file_meta.ImplementationClassUID = "1.2.826.0.1.3680043.8.498.997"
         ds.file_meta.ImplementationVersionName = "pydicom 2.2.2"
         ds.file_meta.SourceApplicationEntityTitle = "Dose-3D"
         
@@ -190,8 +190,8 @@ class CtScanSvc(Svc):
         # ds.Exposure = "0"
         # ds.FilterType = "0"
         # ds.GeneratorPower = "0"
-        ds.StudyInstanceUID = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.1.")
-        ds.SeriesInstanceUID  = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.1.")
+        ds.StudyInstanceUID = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.997.")
+        ds.SeriesInstanceUID  = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.997.")
         ds.StudyID = "1"
         ds.SeriesNumber = "1"
         ds.FrameOfReferenceUID = "1.2.840.10008.15.1.1"
